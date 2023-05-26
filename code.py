@@ -40,7 +40,7 @@ MUTATIONSIZE =  3 * .01 #  Std dev of the Gaussian mutations of the evolutionary
 # ALPHAACTPEN =  3 * 3e-3
 ALPHAACTPEN =  3 * 3 *  10 * 3e-3   # When squaring
 
-NBGEN =  5000 # 1700 # 500      # Number of generations per run
+NBGEN =  1000 # 1700 # 500      # Number of generations per run
 
 
 N = 70  # Number of neurons in the RNN.
