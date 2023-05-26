@@ -33,7 +33,7 @@ TESTTASK = 'dms'; TESTTASKNEG = 'dnms'
 
 
 
-LR =  1e-2         # Adam (evolutionary) LR. 
+LR =   1e-2         # Adam (evolutionary) LR. 
 WDECAY =  3e-4 # Evolutionary weight decay parameter (for the Adam optimizer)
 MUTATIONSIZE =  3 * .01 #  Std dev of the Gaussian mutations of the evolutionary algorithm
 
@@ -41,7 +41,7 @@ MUTATIONSIZE =  3 * .01 #  Std dev of the Gaussian mutations of the evolutionary
 ALPHAACTPEN =  3 * 3 *  10 * 3e-3   # When squaring
 
 NBGEN =  1000 # 1700 # 500      # Number of generations per run
-
+NUMGENCUTLR = 100000            # The generation at which we cut the learning rate. If >NBGEN, we don't.  
 
 N = 70  # Number of neurons in the RNN.
 
@@ -67,16 +67,8 @@ ENDREWARDTIME = STARTREWARDTIME + REWARDTIME
 assert ENDREWARDTIME < T
 
 
-MODULTYPE = 'EXTERNAL' # 'INTERNAL'
+MODULTYPE = 'EXTERNAL' # 'INTERNAL' # EXTERNAL is node-perrturbation. INTERNAL is network-controlled modulation (experimental and untested in this code)
 
-# JINIT = 1.5 #   Scale constant of initial network weights. See Section 2.7 in the MML paper.
-# TAU_ET = 1000.0    # Time constant of the eligibility trace (in ms)
-# PROBAMODUL =  .03 # .1 #       Probability of receiving a random perturbation, for each neuron, at each timestep.
-# ALPHAMODUL =  1.0 # .5 #      Scale of the random perturbations
-# ETA =   .1 *   .1  * .03  if MODULTYPE == 'INTERNAL' else .03 #             Learning rate for lifetime plasticity
-# MULOSSTRACE = .9    #   Time constant for the trace of previous losses that serves as a baseline for neuromodulation
-# MAXDW =  1e-2 #          Maximum delta-weight permissible (per time step) for lifetime plasticity 
-# INITALPHA = .5 # 0.0 #  .5 #        Initial alpha (plasticity parameter) value
 
 
 JINIT = 1.5 #   Scale constant of initial network weights. See Section 2.7 in the MML paper.
@@ -124,9 +116,7 @@ BIASVALUE = 1.0
 NBTASKSPERGEN = 1 # 2 #  2 task blocks per generation
 
 
-# NBTRIALSLOSS = 70              # Evolutionary loss is evaluated over the last 100 trials of each block
-# NBTRIALS =  50 + NBTRIALSLOSS  # Total number of trials per block
-NBTRIALSLOSS = 100              # Evolutionary loss is evaluated over the last 100 trials of each block
+NBTRIALSLOSS = 100              # Evolutionary loss is evaluated over the last NBTRIALSLOSS trials of each block
 NBTRIALS =  300 + NBTRIALSLOSS  # Total number of trials per block
 
 
@@ -162,7 +152,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
     w =  torch.randn(N,N)  * JINIT / np.sqrt(N) 
     w = w.to(device)
     
-    # Initialize alpha values - the plasticity parameters (capital-pi in the paper)
+    # Initialize alpha values - the plasticity coefficients (capital-pi in the paper)
     alpha = INITALPHA * torch.ones_like(w).to(device)
 
     # We zero out input weights to input neurons, though it probably doesn't have any effect.
@@ -180,9 +170,17 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
     binarylosses = []
     wgradnorms = []
     mytaskprev = mytaskprevprev = mytaskprevprevprev = -1
-    
 
-    if EVALW and False:
+
+    if  not EVALW:
+        # We save the initial weights and plasticity coefficients
+        ww = w.cpu().numpy()
+        aa = alpha.cpu().numpy()
+        np.savetxt('winit.txt', ww)
+        np.savetxt('alphainit.txt', aa)
+
+    if EVALW :
+        # If in Evaluate-Weights mode, we load the weights and plasticity coefficients 
         w = np.loadtxt('w.txt')
         w = torch.from_numpy(w).float().to(device)
         winit = w.clone()
@@ -195,13 +193,17 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
     assert MODULTYPE == 'EXTERNAL' or MODULTYPE == 'INTERNAL', "Modulation type must be 'INTERNAL' or 'EXTERNAL'"
 
 
+
+
+
     # Ready to start the evolutionary loop, iterating over generations (i.e. lifetimes). 
 
     for numgen in range(NBGEN):
 
 
 
-        if numgen == NBGEN // 2:
+        if numgen == NUMGENCUTLR:
+            # Optionally, cut the learning rate after a given number of generations. Note that this point will not be reached in the default version because NUMGENCUTLR > NBGEN.
             for param_group in optimizer.param_groups:
                 param_group['lr']  /=  5.0
 
@@ -257,6 +259,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
         
 
         # Lifetime loop, iterates over task-blocks:
+        # In the present version NBTASKSPERGEN is always 1, so this loop is redundant. 
         for numtask in range(NBTASKSPERGEN):
             totalnbtasks += 1
 
@@ -281,26 +284,27 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             # Choose the task ! If not testing, makes sure it's different from recently chosen tasks.
 
 
-            if TESTING: 
-                mytask = TESTTASK 
-                mytasknum = alltasks.index(mytask)
-            else:
-                while True:
-                    mytasknum = np.random.randint(len(alltasks))
+            # if TESTING: 
+            #     mytask = TESTTASK 
+            #     mytasknum = alltasks.index(mytask)
+            # else:
+            #     while True:
+            #         mytasknum = np.random.randint(len(alltasks))
 
-                    mytask = alltasks[mytasknum]
+            #         mytask = alltasks[mytasknum]
 
-                    if ( (mytask!= TESTTASK)  
-                        and (mytask != TESTTASKNEG)  # We withhold both the test task and its logical negation
-                        and     (mytask != mytaskprev) 
-                            and (mytask != mytaskprevprev) 
-                    ):
+            #         if ( (mytask!= TESTTASK)  
+            #             and (mytask != TESTTASKNEG)  # We withhold both the test task and its logical negation
+            #             and     (mytask != mytaskprev) 
+            #                 and (mytask != mytaskprevprev) 
+            #         ):
 
-                        break
+            #             break
 
-                mytaskprevprev = mytaskprev; mytaskprev= mytask
+            #     mytaskprevprev = mytaskprev; mytaskprev= mytask
 
 
+            # We pick the tasks for this generation, for the whole population (i.e. the whole batch)
 
             # # Only use AND and NAND as tasks
             # mytasknum = numtask % 4
@@ -311,6 +315,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             btasks = []  # Tasks for the whole batch
             for ii in range(BS//2):
                 if TESTING: 
+                    # On 'testing' generations, we only show the withheld test task to everyone  (this will not result in any parameter change and is only used for traking evolutionary progress)
                     cand_task = TESTTASK
                     cand_tasknum = alltasks.index(TESTTASK)
                 else:
@@ -321,28 +326,22 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                             and (cand_task != TESTTASKNEG)  # We withhold both the test task and its logical negation
 
 
-                            and (cand_tasknum % 2 == (numgen // 2) % 2)  # Training on alternate halves of the training set at successive (pairs of) generations
-                            # and (cand_tasknum % 4 == numgen  % 4)  # Training on alternate quarters of the training set at successive generations
+                            and (cand_tasknum % 2 == (numgen // 2) % 2)  # Training on alternate halves of the training set at successive (pairs of) generations (not sure if this helps)
 
 
                             ): 
                             break
                 btasks.append(cand_task)
 
-            btasks = btasks * 2     # Duplicating the list, so each antithetic pair has the same tasks. 
+            btasks = btasks * 2     # Duplicating the list, so each antithetic pair (batch elements K and K + BS/2) has the same tasks. 
 
 
 
             if EVALW:
                 btasks = [TESTTASK] * BS
-                # btasks = alltasks * (BS // len(alltasks) + 1)
-                # btasks = btasks[:BS]
-                # with open('btasks.txt', 'w') as f:
-                #     for item in btasks:
-                #         f.write("%s\n" % item)
 
 
-            # btasks = [mytask] * BS
+
 
 
             assert(len(btasks) == BS)
@@ -354,17 +353,17 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
             respz = []      # Response neuron outputs
             stimz = []      # Stimulus neurons  outputs
-            modouts = []    # Neuromodulatory output
+            modouts = []    # Neuromodulatory output - not used here, because we use node-perturbation  (i.e. modulation is EXTERNAL)
             rewins = []     # Received rewards (reward neuron outputs)
 
 
             if PRINTING:
                 print("task[0]:", btasks[0], "task[1]:", btasks[1])
             
+
+
             # OK, ready to start the task.
 
-            # Generate the task data (inputs and targets) for all trials:
-            # taskdata = generateInputsAndTargetsForTask(mytask=mytask)
 
             eligtraces =   torch.zeros_like(bw, requires_grad=False).to(device)  # Initialize the eligibility traces at the start of each block/task.
 
@@ -373,28 +372,18 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             # You do NOT erase memory (neural activations or plastic weights) between successive trials ! 
             for numtrial in range(NBTRIALS):
 
-
-                # # Akshully do initialize network activations for each trial - THIS IS ONLY FOR DEBUGGING / SIMPLER TEST TASK!
-                # bresps.fill_(0)
-                # bstates.fill_(0)
-
-                # # We reinitialize only modulatory neuron activations for each trial - THIS IS ONLY FOR DEBUGGING / SIMPLER TEST TASK!
-                # bresps[:, MODNEURONS] = 0
-                # bstates[:, MODNEURONS] = 0
-
-
+                # First, some preparation for the trial to come.
                 
                 # Initializations
                 mselossesthistrial = torch.zeros(BS, requires_grad=False).to(device)     # MSE losses for this trial
                 totalresps = torch.zeros(BS, NBRESPNEURONS, requires_grad=False).to(device)     # Will accumulate the total outputs of each network over the trial, so we can compute the network's response for this trial.  
 
-                # Generate the inputs and targets for this trial:
+
+                # Before we start the trial, we need to generate the inputs and targets for this trial, for the whole population (i.e. the whole batch):
 
                 # Pick stimulus 1 and stimulus 2 for this trial (and for each batch member):
                 stims1 = (torch.rand(BS, 1) > .5).float()
                 stims2 = (torch.rand(BS, 1) > .5).float()
-
-
 
 
                 # Antithetic pairs share the exact same stimuli
@@ -416,7 +405,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
             
-                # Now we compute the targets, that is, the expected values of the output neurons, depending on inputs and tasks
+                # Now we compute the targets for this trial, that is, the expected values of the output neurons, depending on inputs and tasks
                 tgts = -100 * np.ones((BS, NBRESPNEURONS, RESPONSETIME)) 
           
                 for ii in range(BS):
@@ -461,9 +450,8 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                 tgts[:, 1, :] = np.clip(tgts[:, 1, :], 0.0, 1.0)
 
 
-                # tgts[:, 1, :] = 1.0
 
-                # The null-response neuron's expected output is just the opposite of the non-null response neuron output (response is either 0 or 1).
+                # The target responses of the two output neurons are mirror images of each other (network response is binary)
                 tgts[:, 0, :] = 1.0 - tgts[:, 1, :]
 
                 assert np.all(np.logical_or(tgts == 0.0 , tgts == 1.0))
@@ -472,7 +460,6 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                     alltgts.append(tgts[:,1, 0])
                     allstims.append(np.hstack((stims1, stims2)))
 
-                # assert numgen < 2 or numtrial < 15
 
 
 
@@ -483,18 +470,25 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
 
-                # raise ValueError
+
+                # Now the inputs and targets are prepared, we are ready to actually start the trial!
 
 
                 # Run the network. Trial loop, iterating over timesteps
                 for numstep in range(T):          
 
-                    # Update neural activations, using previous-step bresps (actual neural outputs) as input:
+                    # Update neural activations, using previous-step bresps (actual neural outputs) as input.
+                    # 'bstates' are the neural activations before nonlinearity
+                    # 'bresps' are the actual firing rates, i.e. bstates after nonliniearity (or clamped values for input neurons)
+                    # bresps is the lateral input to bstates, which is  then used to compute brates for the next step
+
+                    # This implements the equation dx = dt/tau * (-x(t) + (W + PI .* P(t)) @  y(t) ) - standard continuous-time RNN, with plastic weights. 'alpha' is PI in the ICML paper.
                     bstates += (DT / TAU) * (-bstates +  torch.bmm((bw + balpha * bpw), bresps[:, :, None])[:,:,0] )  
 
 
                     # Applying the random perturbations on neural activations, both for noise and for the lifetime plasticity algorithm (node-perturbation)
                     # And also updating the eligibility trace appropriately
+                    # This is a very non-optimal implementation!
                     if numstep > 1 : 
                         perturbindices =  (torch.rand(1, N) < PROBAMODUL).int()   # Which neurons get perturbed?
 
@@ -507,7 +501,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
                         if numtrial > NBTRIALS - 20:
-                            perturbations.fill_(0)
+                            perturbations.fill_(0)  # Again, not sure if that helps
 
 
 
@@ -523,7 +517,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                     eligtraces -=  (DT / TAU_ET) * eligtraces
 
 
-                    # We can now compute the actual neural responses for this time step, applying the appropriate nonlinearity to each neuron
+                    # We can now compute the actual neural responses (firing rates) for this time step, applying the appropriate nonlinearity to each neuron
                     bresps = bstates.clone() # F.leaky_relu(bstates)
                     # The following assumes that response neurons are the last neurons of the network !                        
                     bresps[:,N-NBRESPNEURONS:].sigmoid_()     # The response neurons (NOT output neurons - modulatory neuron not included!) are sigmoids, all others are tanh. An arbitrary design choice.
@@ -580,14 +574,14 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                         # Now we apply lifetime plasticity, with node-perturbation, based on eligibility trace and suitably baselined reward/loss
 
 
-                        # Baseline computation - only used for external neuromodulation experiments
+                        # Baseline computation - only used for node-perturbation
                         # We compute separate baseline (running average) losses for different types of trials, as defined by their inputs (as in Miconi, eLife 2017). 
                         # So we need to find out the trial type for each element in batch.
                         # input1 = inputs[:, 0, 0]; input2 = inputs[:, 1, 0]  # Uh, what was that?
                         input1 = stims1[:,  0]; input2 = stims2[:, 0]  
                         trialtypes = (input1>0).long() * 2 + (input2>0).long()
 
-                        if MODULTYPE == 'EXTERNAL' and numtrial > 30:                        
+                        if MODULTYPE == 'EXTERNAL' and numtrial > 30: #  + (300 if EVALW else 0):                        
                             dw =  - (ETA * eligtraces  * (  meanlosstrace[np.arange(BS), trialtypes] * (mselossesthistrial - meanlosstrace[np.arange(BS), trialtypes]) )[:, None, None]).clamp(-MAXDW, MAXDW)
                             bpw += dw
 
@@ -600,7 +594,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
 
-                    # Plasticity computation for internal (network-controlled) neuromodulation.
+                    # Plasticity computation for internal (network-controlled) neuromodulation (not used in node-perturbation experiments -highly experimental, do not trust).
                     # Note that it is applied at every time step, unlike external neuromodulation experiments which only apply plasticity once per  trial, at the beginning of the reward period (see above).
                     if numtrial > 10 and MODULTYPE == 'INTERNAL':  # Lifetime plasticity is only applied after a few burn-in trials.
                         # eligtraces: BS x N x N (1 per connection & batch element)  mselossesthhistrial:  BS.    meanlosstrace: BS x (N.N).    trialtypes: BS    bresps/bstates:  BS x N 
@@ -614,10 +608,6 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                         if numstep > 0 :
                             lifeactpens += (modulsprev - moduls) ** 2
 
-
-                        # If we use only the first neuromodulatory neuron's (tanh) output as the actual neuromodulatory output:
-                        # dw =   (ETA * eligtraces * bresps[:, MODNEURONS[0]][:, None, None] ).clamp(-MAXDW, MAXDW)
-
                         dw =   (ETA * eligtraces * moduls[:, None, None] ).clamp(-MAXDW, MAXDW)
 
 
@@ -626,26 +616,12 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
                     # Are we in the reward signal period?
-                    # Note: the actual neuromodulatory reward signal (which influences plasticity) is applied just once per trial, above. Here we provide a binary "correct/ incorrect" signal to the network, 
-                    # i.e. "was my response right or wrong for this trial?" 
-                    # We also provide a signal indicating which response it gave in this trial (in theory it should be able to calculate it itself if needed, but this may help).
+                    # This is just to inform the network of its own performance. The actual lifetime plasticity  and neuromodulation is computed above. 
                     if numstep >= STARTREWARDTIME and numstep < ENDREWARDTIME: # Note that by this time, the loss has been computed and is fixed
                         
-                        # # We provide a binary, "correct/incorrect" signal to the network
-                        # bresps[:,REWARDNEURONS[0]] = REWARDSIZE * blosses[:]         # Reward input is also clamping
-                        # bresps[:,REWARDNEURONS[1]] = -REWARDSIZE * blosses[:]         # Reward input is also clamping
-
-                        # Akshully, we provide the same MSE loss that is used to guide evolution
-                        # bresps[:,REWARDNEURONS[0]] = REWARDSIZE * mselossesthistrial[:]         # Reward input is also clamping
-                        # bresps[:,REWARDNEURONS[1]] = -REWARDSIZE * mselossesthistrial[:]         # Reward input is also clamping
-
-                        # Akshully^2, we duplicate the reward signal across many neurons to (maybe) increase its potnetial impact and exploitability (?...)
+                        # We duplicate the reward signal across many neurons to (maybe) increase its potnetial impact and exploitability (?...)
                         bresps[:,REWARDNEURONS[0]:REWARDNEURONS[-1]+1] = REWARDSIZE * mselossesthistrial[:, None]         # Reward input is also clamping
                         bresps[:,REWARDNEURONS[0]:REWARDNEURONS[-1]+1].clip_(min=0)            # Not sure if this helps. Well, obviously not if using plain MSE which is always +ve.
-                        # bresps[:,REWARDNEURONS] = REWARDSIZE * mselossesthistrial[:, None]         # Reward input is also clamping
-                        # bresps[:,REWARDNEURONS].clip_(min=0)            # Not sure if this helps. Well, obviously not if using plain MSE which is always +ve.
-
-
 
 
                         # We provide the network with a signal indicating the actual response it chose for this trial. Not sure if needed.  
@@ -657,13 +633,9 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
                     else:
                         bresps[:,REWARDNEURONS[0]:REWARDNEURONS[-1]+1] = 0
                         bresps[:, RESPSIGNALNEURONS[0]:RESPSIGNALNEURONS[-1]+1] = 0
-                        # bresps[:,REWARDNEURONS] = 0
-                        # bresps[:, RESPSIGNALNEURONS] = 0
 
 
-                    
-                    # modouts.append(float(moduls[0]))
-                    # rewins.append(float(bresps[0, REWARDNEURONS[0]]))
+
                     if COLLECTMODOUTSANDREWINS:
                         stimz.append(bresps[0, STIMNEURONS[0]])
                         respz.append(bresps[0, RESPNEURONS[1]] - bresps[0, RESPNEURONS[0]])
@@ -674,12 +646,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
                     if EVALW: 
                         allresps.append(bresps.cpu().numpy().astype('float32'))
-                    # if EVALW and numtrial >= NBTRIALS - 50:
-                    #     stimz.append(bresps[:, STIMNEURONS[0]])
-                    #     respz.append(bresps[:, RESPNEURONS[1]] - bresps[:, RESPNEURONS[0]])
-                    #     if MODULTYPE == 'INTERNAL': #  Doesn't make sense  for external modulation
-                    #         modouts.append(moduls[:])
-                    #     rewins.append(bresps[:, REWARDNEURONS[0]])
+
 
 
 
@@ -711,17 +678,6 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             
             
             
-            # raise ValueError
-
-            if EVALW:
-                pass
-                # print("Saving Resps, Stims,  RI, MO")
-
-                # np.savetxt('stims.txt', np.vstack([x.cpu().numpy() for x in stimz]))
-                # np.savetxt('resps.txt', np.vstack([x.cpu().numpy() for x in respz]))
-                # np.savetxt('modouts.txt', np.vstack([x.cpu().numpy() for x in modouts]))
-                # np.savetxt('rewins.txt', np.vstack([x.cpu().numpy() for x in rewins]))
-
 
             if COLLECTMODOUTSANDREWINS:
                 print("Saving Resps, Stims,  RI, MO")
@@ -738,7 +694,6 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             if (TESTING or numgen == 0) and numtask == 0:
                 # These files contain respectively the first and *latest* Testing block of the *current* run only. 
                 FNAME = 'bl_1standLastBlock_gen0.txt' if numgen == 0 else 'bl_1standLastBlock_lastgen.txt'
-                # np.savetxt(FNAME, np.array(bl0s))
                 np.savetxt(FNAME, np.vstack(bls))
 
 
@@ -754,11 +709,19 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
         binarylosses.append(float(lifeblosses[0]))
         evolosses.append(float(lifemselosses[0]))
 
-        np.savetxt('blosses_onerun.txt', np.array(binarylosses))
-        np.savetxt('mselosses_onerun.txt', np.array(evolosses))
+
+        if TESTING and not EVALW:
+            np.savetxt('blosses_onerun.txt', np.array(binarylosses)) # This is the main evaluation metric: The mean success rate over the last NBTESTTRIALS of each generation, for batch element 0 (the unmutated candidate genome)
+            np.savetxt('mselosses_onerun.txt', np.array(evolosses))
+            ww = w.cpu().numpy()
+            pw0 = bpw[0,:,:].cpu().numpy()
+            aa = alpha.cpu().numpy()
+            np.savetxt('w.txt', ww)
+            np.savetxt('pw0.txt', pw0)
+            np.savetxt('alpha.txt', aa)
 
 
-        if EVALW:
+        if EVALW  and True:
             # Note: we use .npy format, because multi-dimensional.
             
             np.save('allstims.npy',  np.stack(allstims, -1))
@@ -772,7 +735,7 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
             z2 = np.stack(np.split(z1, NBTRIALS, axis=2), axis=-1)
             print("Final shape of the saved responses:", z2.shape)
             assert(z2.shape == (BS, N, T, NBTRIALS))
-            np.save('allresps.npy', z2[:,:,:,[9,-1]]) # We only store response data for 9th (before plasticity starts) and last trial (to keep file size manageable) 
+            np.save('allresps.npy', z2[:,:,:,[29,-1]]) # We only store response data for 29th (before plasticity starts) and last trial (to keep file size manageable) 
 
 
 
@@ -836,3 +799,5 @@ with torch.no_grad():  # We don't need PyTorch to keep track of gradients, since
 
 
 print("Time taken:", time.time()-ticstart)
+
+
