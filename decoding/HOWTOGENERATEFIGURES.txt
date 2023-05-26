@@ -1,0 +1,9 @@
+- Upload w.txt and alpha.txt from a completed run.
+
+- Run code.py with EVALW=True (line 144), twice: once with line 192 set to "EVALW and False" (to run it with initialized, random weights/alpha), and once with line 192 set to "EVALW and True" (to run it with the actual uploaded weights and alpha).
+
+- On the first run (with randomly initialized weights), download allstims.npy, allresps.npy, alltgts.npy, and rename them with the same filenames but with ".0" suffix  (allstims.npy.0, allresps.npy.0, alltgts.npy.0).
+
+- On the second run (with actual uploaded w and alpha), just keep the output files under their unmodified name.
+
+- Just run decoding.py. It should generate all decoding figures on its own, as PNG files.
