@@ -20,3 +20,4 @@ batch element 0, the unmutated genome). Every 10th value in this file is obtaine
 
 4- Repeat the same process as many times as you like, each time saving `blosses_onerun.txt` under a different name. Then uncommment and modify line 11 in `curves.py` to include the names of all these files as a list.  Run `curves.py` to generate the same plot as Figure 2 in the paper, with inter-quartile ranges.
 
+The `decodinig` directory includes code and instructions to generate the decoding results in Figure  4 of the paper.
