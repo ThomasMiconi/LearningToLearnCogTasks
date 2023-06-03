@@ -1,6 +1,6 @@
 ## Summary
 
-This is the code for the ICML 2023 paper, "Learning to acquire novel cognitive tasks with evolution, plasticity and meta-meta-learning".
+This is the code for the ICML 2023 paper, [Learning to acquire novel cognitive tasks with evolution, plasticity and meta-meta-learning](https://arxiv.org/abs/2112.08588).
 
 We evolve a recurrent  network, endowed with a reward-modulated Hebbian
 plasticity rule, that can  automatically learn simple cognitive tasks from
